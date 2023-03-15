@@ -21,6 +21,7 @@
 
 
 //C语言不支持默认参数
+void printerr(const char* str);
 void testtype();
 void testdir(const char* dir);
 void testconf();
@@ -32,6 +33,7 @@ void testthread();
 void testthread2();
 void testthread_barrier();
 void testsyslog();
+void testlock();
 void testmmap();
 
 
@@ -48,14 +50,19 @@ int main()
     // testsysname();
     // testsigal1();
     // testthread();
-    testthread2();
+    // testthread2();
     // testthread_barrier();
     //testsyslog();
-    //testmmap();
+    // testlock();
+    testmmap();
 
     printf("test end!\n");
 }
 
+void printerr(const char* str)
+{
+    printf("%s %d %s\n", str, errno, strerror(errno));
+}
 void testtype()
 {
     int ia = 1;
@@ -63,6 +70,9 @@ void testtype()
     char sza[100] = "abcd";
 
     void *pv = (void*)12;
+
+    int bb[10];
+    printf("int[10] %d\n",sizeof(bb));   //40
 
     printf("addr sza %x\n", sza);
     printf("addr ca %x\n", &ca);
@@ -371,6 +381,94 @@ void testsyslog()
 
 }
 
+
+int lockfile(int fd, int cmd, int type, int where, off_t off, off_t len)
+{
+    struct flock lock;
+
+    lock.l_type = type;
+    lock.l_whence = where;
+    lock.l_start = off;
+    lock.l_len = len;
+
+    int ret = fcntl(fd, cmd, &lock);
+    if (ret < 0)
+    {
+        printf("error fcntl %d %s\n", errno, strerror(errno));
+        return ret;
+    }
+
+    if (cmd == F_GETLK)
+    {
+        if (lock.l_type == F_UNLCK)
+        {
+            return 0;
+        }
+
+        return lock.l_pid;
+    }
+
+    return ret;
+}
+int lockfile_rd(int fd, int where, off_t off, off_t len)
+{
+    return lockfile(fd, F_SETLK, F_RDLCK, where, off, len);
+}
+int lockfilew_rd(int fd, int where, off_t off, off_t len)
+{
+    return lockfile(fd, F_SETLKW, F_RDLCK, where, off, len);
+}
+int lockfile_wr(int fd, int where, off_t off, off_t len)
+{
+    return lockfile(fd, F_SETLK, F_WRLCK, where, off, len);
+}
+int lockfilew_wr(int fd, int where, off_t off, off_t len)
+{
+    return lockfile(fd, F_SETLKW, F_WRLCK, where, off, len);
+}
+int lockfile_un(int fd, int where, off_t off, off_t len)
+{
+    return lockfile(fd, F_SETLK, F_UNLCK, where, off, len);
+}
+int testfile_rd(int fd, int where, off_t off, off_t len)
+{
+    return lockfile(fd, F_GETLK, F_RDLCK, where, off, len);
+}
+int testfile_wr(int fd, int where, off_t off, off_t len)
+{
+    return lockfile(fd, F_GETLK, F_WRLCK, where, off, len);
+}
+
+void testlock()
+{
+    int fd = open("lockfile", O_RDWR|O_CREAT, 0666);
+    if (fd < 0)
+    {
+        printerr("open lockfile error");
+        return;
+    }
+
+    int ret;
+    if((ret = testfile_wr(fd, SEEK_SET, 0, 0)) != 0)
+    {
+        printf("locked pid %d\n", ret);
+    }
+
+    if (lockfile_wr(fd, SEEK_SET, 0, 0) < 0)
+    {
+        printerr("lockfile_wr error");
+        return;
+    }
+
+    ftruncate(fd, 0);
+
+    char buf[100] = {0};
+    snprintf(buf, sizeof(buf), "pid:%d\n", getpid());
+    write(fd, buf, strlen(buf));
+    close(fd);
+}
+
+
 #include <sys/mman.h>
 void testmmap()
 {
@@ -391,10 +489,8 @@ void testmmap()
     close(fd);
 
     printf("mm:%s\n", mm);
-
-    sprintf(mm, "abcd123");
+    sprintf(mm, "abcd12");
     printf("MM:%s\n",mm);
 
     munmap(mm, 0x1000);
-
 }
