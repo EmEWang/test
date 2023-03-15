@@ -35,6 +35,7 @@ void testsyslog();
 void testmmap();
 
 
+// test
 int main()
 {
     printf("this is test program!\n");
