@@ -1,0 +1,10 @@
+#git 忽略文件不提交
+add
+call
+a.out
+client
+ipc
+server
+test
+tt
+ttt
