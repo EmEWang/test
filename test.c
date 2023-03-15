@@ -2,6 +2,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <limits.h>
+#include <float.h>
+
 #include <unistd.h>
 #include <fcntl.h>
 #include <time.h>
@@ -12,35 +15,88 @@
 #include <errno.h>
 #include <signal.h>
 #include <sys/types.h>
+#include <pthread.h>
 
+#include <dirent.h>
+
+
+//C语言不支持默认参数
+void testtype();
+void testdir(const char* dir);
+void testconf();
 void testFile(const char* name);
 void teststdFile(const char* name);
 void testsysname();
 void testsigal1();
+void testthread();
+void testthread2();
+void testthread_barrier();
 void testsyslog();
 void testmmap();
+
 
 int main()
 {
     printf("this is test program!\n");
 
+    // testtype();
+    // testdir("./");
+    // testconf();
+    // testFile("/home/lixiang/wjg/1");
+    // teststdFile("/home/lixiang/wjg/1");
+    // testsysname();
+    // testsigal1();
+    // testthread();
+    testthread2();
+    // testthread_barrier();
+    //testsyslog();
+    //testmmap();
+
+    printf("test end!\n");
+}
+
+void testtype()
+{
     int ia = 1;
     char ca = 's';
     char sza[100] = "abcd";
+
+    void *pv = (void*)12;
+
+    printf("addr sza %x\n", sza);
+    printf("addr ca %x\n", &ca);
+    printf("addr pv %x\n", pv);
 
     printf("size: long %lu\n", sizeof(long));
 
     struct timespec times;
     //times.tv_nsec = UTIME_NOW;
+}
 
-    //testFile("/home/lixiang/wjg/1");
-    //teststdFile("/home/lixiang/wjg/1");
-    //testsysname();
-    //testsigal1();
-    //testsyslog();
-    testmmap();
+void testdir(const char* strdir)
+{
+    printf("cur dir:%s\n", strdir);
+    DIR *dir;
+    struct dirent *di;
 
-    printf("test end!\n");
+    if ((dir=opendir(strdir)) == NULL)
+    {
+        printf("open dir error %d %s\n", errno, strerror(errno));
+        return;
+    }
+
+    while ((di=readdir(dir)) != NULL)
+    {
+        printf("%s\n", di->d_name);
+    }
+
+    closedir(dir);
+}
+
+void testconf()
+{
+    printf("_SC_CLK_TCK:%ld\n", sysconf(_SC_CLK_TCK));
+    printf("_SC_NZERO:%ld\n", sysconf(_SC_NZERO));
 }
 
 void testFile(const char* name)
@@ -53,15 +109,27 @@ void testFile(const char* name)
     }
 
     printf("file %s\n", name);
+    printf("st_mode %x\n", buf.st_mode);
+    printf("st_size %ld\n", buf.st_size);
     printf("st_blocks %ld st_blksize %ld\n", buf.st_blocks, buf.st_blksize);
     printf("st_nlink %lu st_inod %lu\n", buf.st_nlink, buf.st_ino);
     printf("st_dev %d/%d\n", major(buf.st_dev), minor(buf.st_dev));
     if(S_ISCHR(buf.st_mode)|| S_ISBLK(buf.st_mode))
     {
-        printf("st_rdev %s %d/%d", (S_ISCHR(buf.st_dev)?"charcater":"block"), 
-            major(buf.st_rdev), minor(buf.st_rdev));        
+        printf("st_rdev %s %d/%d", (S_ISCHR(buf.st_dev)?"charcater":"block"),
+            major(buf.st_rdev), minor(buf.st_rdev));
     }
 
+
+    int fd = open(name, O_RDONLY);
+    if(fd == -1)
+    {
+        printf("open file error %d %s\n", errno, strerror(errno));
+        return;
+    }
+    int val;
+    val = fcntl(fd, F_GETFD,0);
+    fcntl(fd, F_SETFD, val);
 }
 
 
@@ -80,7 +148,7 @@ void teststdFile(const char* name)
 
     const static int bufsize = 48;
     char buf[48] = {0};
-    
+
     FILE *memfile = fmemopen(buf, bufsize, "w+");
     if(memfile == NULL)
     {
@@ -186,6 +254,8 @@ void testsigal1()
             return;
         }
 
+        //进程组变成孤儿进程组时 每个进程会接收到 SIGHUP 挂断信号 紧接着又会收到 SIGCONT 信号
+        SIG_DFL,SIG_ERR,SIG_IGN;  //信号默认处理方法 返回出错 信号忽略
         signal(SIGHUP, sig_hup);
         signal(SIGCONT, sig_cont);
         kill(getpid(), SIGTSTP);
@@ -194,7 +264,7 @@ void testsigal1()
 
         if(read(STDIN_FILENO, &c, 1) != 1)
             printf("read error %d %s\n", errno, strerror(errno));
-        
+
         print_pids("child");
         printf("child exit\n");
     }
@@ -202,9 +272,86 @@ void testsigal1()
     exit(0);
 }
 
+void tfunc1(void *arg)
+{
+    int *pi = (int*)arg;
+    printf("thread id !!! %lu pid %d arg %d\n", pthread_self(), getpid(), *pi);
+    pthread_exit((void*)234);
+}
+void testthread()
+{
+    pthread_t tid;
+
+    int i = 123;
+    void *pv = NULL;
+    pthread_create(&tid, NULL, tfunc1, &i);
+
+    pthread_join(tid, &pv);
+    printf("thread id ~~~ %lu pid %d return %d\n", pthread_self(), getpid(), (int)pv); //两者一样
+    printf("thread id ~~~ %lu pid %d return %d\n", pthread_self(), getpid(), (int*)pv);
+}
+
+
+pthread_once_t ponce = PTHREAD_ONCE_INIT;
+void tfunc_once()
+{
+    printf("tfunc_once\n");
+}
+void tfunc2()
+{
+    // 执行一次方法
+    pthread_once(&ponce,tfunc_once);
+    printf("thread id %lu pid %d\n", pthread_self(), getpid());
+    sleep(5);
+}
+void testthread2()
+{
+    int count = 5;
+    pthread_t *tid = malloc(sizeof(pthread_t) * count);
+
+    for (int i = 0; i < count; i++)
+    {
+       pthread_create(tid+i, NULL, tfunc2, NULL);
+    }
+
+    for (int i = 0; i < count; i++)
+    {
+        pthread_join(*(tid+i), NULL);
+    }
+
+    printf("main thread\n");
+    free(tid);
+}
+
+pthread_barrier_t b;
+void tfunc_barrier()
+{
+    printf("int tid %lu\n", pthread_self());
+    sleep(1);
+    pthread_barrier_wait(&b);
+}
+void testthread_barrier()
+{
+    int count = 3;
+
+    pthread_barrier_init(&b, NULL, count+1);
+
+    for (int i = 0; i < count; i++)
+    {
+        pthread_t tid;
+        pthread_create(&tid, NULL, tfunc_barrier, NULL);
+    }
+
+    pthread_barrier_wait(&b);
+
+
+    printf("come to barrier\n");
+}
+
 #include <syslog.h>
 void testsyslog()
 {
+    // /var/log/syslog
     if(0)
     {
     //setlogmask (LOG_UPTO (LOG_NOTICE));  //设置日志级别
@@ -247,7 +394,6 @@ void testmmap()
     sprintf(mm, "abcd123");
     printf("MM:%s\n",mm);
 
-    munmap(mm, 0x1000);    
+    munmap(mm, 0x1000);
 
 }
-
